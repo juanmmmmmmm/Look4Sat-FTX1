@@ -401,12 +401,22 @@ class Ftx1Controller(
     override suspend fun setCtcssMode(
         enabled: Boolean
     ): Boolean =
-        false
+        send(
+            Ftx1CatProtocol
+                .buildSetSubCtcssModeCommand(enabled)
+        )
 
     override suspend fun setCtcssTone(
         toneHz: Double
-    ): Boolean =
-        false
+    ): Boolean {
+
+        val command =
+            Ftx1CatProtocol
+                .buildSetSubCtcssToneCommand(toneHz)
+                ?: return false
+
+        return send(command)
+    }
 
     /*
      * PTT deliberately disabled.
