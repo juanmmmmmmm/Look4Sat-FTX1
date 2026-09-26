@@ -1,20 +1,3 @@
-/*
- * Look4Sat. Amateur radio satellite tracker and pass predictor.
- * Copyright (C) 2019-2026 Arty Bishop and contributors.
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <https://www.gnu.org/licenses/>.
- */
 package com.rtbishop.look4sat.core.domain.repository
 
 interface IRadioController {
@@ -61,28 +44,28 @@ interface IRadioController {
     suspend fun setSplitMode(enabled: Boolean): Boolean = false
 
     /**
-     * Set the frequency of the currently active VFO (IC-705: CMD 0x25 sub 0x00).
+     * Set the frequency of the currently active VFO.
      * Default: delegates to [setFrequency].
      */
-    suspend fun setWorkingFrequency(frequencyHz: Long): Boolean = setFrequency(frequencyHz)
+    suspend fun setWorkingFrequency(frequencyHz: Long): Boolean =
+        setFrequency(frequencyHz)
 
     /**
-     * Set the frequency of the inactive/TX VFO (IC-705: CMD 0x25 sub 0x01).
-     * Sent every tracking cycle alongside [setWorkingFrequency] in split mode.
+     * Set the frequency of the inactive/TX VFO.
      * Default: delegates to [setWorkingFrequency].
      */
-    suspend fun setTxVfoFrequency(frequencyHz: Long): Boolean = setWorkingFrequency(frequencyHz)
+    suspend fun setTxVfoFrequency(frequencyHz: Long): Boolean =
+        setWorkingFrequency(frequencyHz)
 
     /**
-     * Read the frequency of the currently active VFO (IC-705: CMD 0x25 sub 0x00).
-     * Default: delegates to [readFrequencyAndMode].
+     * Read the frequency of the currently active VFO.
      */
-    suspend fun readWorkingFrequency(): Long? = readFrequencyAndMode()?.first
+    suspend fun readWorkingFrequency(): Long? =
+        readFrequencyAndMode()?.first
 
     /**
-     * Read the frequency of the inactive/TX VFO (IC-705: CMD 0x25 sub 0x01).
-     * Used for tuning detection in split mode.
-     * Default: delegates to [readWorkingFrequency].
+     * Read the frequency of the inactive/TX VFO.
      */
-    suspend fun readTxVfoFrequency(): Long? = readWorkingFrequency()
+    suspend fun readTxVfoFrequency(): Long? =
+        readWorkingFrequency()
 }
