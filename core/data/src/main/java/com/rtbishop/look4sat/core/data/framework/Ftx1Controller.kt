@@ -354,11 +354,22 @@ class Ftx1Controller(
      * These commands do NOT press PTT.
      */
 
-    suspend fun selectSubForTx(): Boolean =
-        send(
-            Ftx1CatProtocol
-                .buildTxSubCommand()
-        )
+    suspend fun selectSubForTx(): Boolean {
+
+        val txSideOk =
+            send(
+                Ftx1CatProtocol
+                    .buildTxSubCommand()
+            )
+
+        val vfoStateOk =
+            send(
+                Ftx1CatProtocol
+                    .buildVfoSubTxRxCommand()
+            )
+
+        return txSideOk && vfoStateOk
+    }
 
     suspend fun selectMainForTx(): Boolean =
         send(

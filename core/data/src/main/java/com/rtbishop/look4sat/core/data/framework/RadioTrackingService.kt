@@ -344,29 +344,374 @@ class RadioTrackingService(
             rcSettings.radioModel ==
                 RadioControlSettings.MODEL_ICOM_IC705
 
+        val isFtx1 =
+            rcSettings.radioModel ==
+                RadioControlSettings.MODEL_YAESU_FTX1
+
         val isSplit =
             isIcom &&
                 rcSettings.splitMode
 
-        if (isSplit) {
+        trackingJob =
+            when {
+                isFtx1 ->
+                    appScope.launch {
+                        runFtx1SingleRadioTracking(
+                            transponder,
+                            txBaseFreqHz
+                        )
+                    }
 
-            trackingJob =
-                appScope.launch {
-                    runSplitTracking(
-                        transponder,
-                        txBaseFreqHz
-                    )
+                isSplit ->
+                    appScope.launch {
+                        runSplitTracking(
+                            transponder,
+                            txBaseFreqHz
+                        )
+                    }
+
+                else ->
+                    appScope.launch {
+                        runDualRadioTracking(
+                            transponder,
+                            txBaseFreqHz
+                        )
+                    }
+            }
+    }
+
+    // ── Yaesu FTX-1 single-radio tracking ──────────────────────────────────
+
+    private suspend fun runFtx1SingleRadioTracking(
+        transponder: SatRadio,
+        initialTxBaseFreqHz: Long?
+    ) {
+
+        val radio =
+            ftx1Controller as? Ftx1Controller
+                ?: run {
+                    Log.e(tag, "FTX-1 controller type mismatch")
+                    return
                 }
 
-        } else {
+        if (!radio.isConnected) {
+            Log.e(tag, "FTX-1 tracking requested while radio is disconnected")
+            return
+        }
 
-            trackingJob =
-                appScope.launch {
-                    runDualRadioTracking(
-                        transponder,
-                        txBaseFreqHz
-                    )
+        val txMode =
+            transponder.uplinkMode
+
+        val rxMode =
+            transponder.downlinkMode
+                ?: transponder.uplinkMode?.let {
+                    TransponderMapper
+                        .mapUplinkModeToDownlinkMode(
+                            it,
+                            transponder.isInverted
+                        )
                 }
+
+        val txCenter =
+            when {
+                transponder.uplinkLow != null &&
+                    transponder.uplinkHigh != null ->
+                    (
+                        transponder.uplinkLow!! +
+                            transponder.uplinkHigh!!
+                        ) / 2
+
+                transponder.uplinkLow != null ->
+                    transponder.uplinkLow!!
+
+                else ->
+                    null
+            }
+
+        val txBase =
+            initialTxBaseFreqHz
+                ?: txCenter
+
+        val rxNominal =
+            if (txBase != null) {
+                TransponderMapper
+                    .mapUplinkToDownlink(
+                        txBase,
+                        transponder
+                    )
+            } else {
+                transponder.downlinkLow
+            }
+
+        Log.i(
+            tag,
+            "FTX-1 setup: MAIN RX=${rxNominal}Hz SUB TX=${txBase}Hz txMode=$txMode rxMode=$rxMode"
+        )
+
+        // MAIN is always the receive/downlink side.
+        if (rxNominal != null) {
+            radio.setMainFrequency(rxNominal)
+        }
+
+        if (rxMode != null) {
+            radio.setMainMode(rxMode)
+        }
+
+        // SUB is always the transmit/uplink side.
+        if (txBase != null) {
+            radio.setSubFrequency(txBase)
+        }
+
+        if (txMode != null) {
+            radio.setSubMode(txMode)
+        }
+
+        // Select SUB as the transmitter side. This does NOT key PTT.
+        radio.selectSubForTx()
+
+        _state.update {
+            it.copy(
+                txMode = txMode,
+                rxMode = rxMode,
+                txBaseFrequencyHz = txBase
+            )
+        }
+
+        var lastSetTxFreq = 0.0
+        var lastSetRxFreq = 0.0
+        var tuningRadio = ""
+        var lastReadFreq = 0L
+        var stableCount = 0
+
+        while (
+            currentCoroutineContext().isActive
+        ) {
+
+            val currentState =
+                _state.value
+
+            if (!currentState.isActive) {
+                break
+            }
+
+            val satPass =
+                currentState.currentPass
+                    ?: break
+
+            val xpdr =
+                currentState.selectedTransponder
+                    ?: break
+
+            var txBaseFreq =
+                currentState.txBaseFrequencyHz
+
+            val stationPos =
+                settingsRepo.stationPosition.value
+
+            val pos =
+                satelliteRepo.getPosition(
+                    satPass.orbitalObject,
+                    stationPos,
+                    System.currentTimeMillis()
+                )
+
+            val v =
+                pos.distanceRate * 1000.0
+
+            if (tuningRadio.isNotEmpty()) {
+
+                val readFreq =
+                    if (tuningRadio == "tx") {
+                        radio.readTxVfoFrequency()
+                    } else {
+                        radio.readWorkingFrequency()
+                    }
+
+                if (readFreq != null) {
+
+                    if (
+                        kotlin.math.abs(
+                            readFreq - lastReadFreq
+                        ) <= 20
+                    ) {
+                        stableCount++
+                    } else {
+                        stableCount = 0
+                        lastReadFreq = readFreq
+                    }
+
+                    if (stableCount >= 2) {
+
+                        if (
+                            tuningRadio == "tx" &&
+                            txBaseFreq != null
+                        ) {
+
+                            val newBase =
+                                (
+                                    readFreq.toDouble() *
+                                        SPEED_OF_LIGHT /
+                                        (SPEED_OF_LIGHT + v)
+                                    ).toLong()
+
+                            if (newBase > 0) {
+                                txBaseFreq = newBase
+                                _state.update {
+                                    it.copy(
+                                        txBaseFrequencyHz = newBase
+                                    )
+                                }
+                                Log.i(
+                                    tag,
+                                    "FTX-1 SUB tuning done -> base=$newBase"
+                                )
+                            }
+
+                        } else if (
+                            tuningRadio == "rx"
+                        ) {
+
+                            val rxNominalNow =
+                                (
+                                    readFreq.toDouble() *
+                                        SPEED_OF_LIGHT /
+                                        (SPEED_OF_LIGHT - v)
+                                    ).toLong()
+
+                            val newTxBase =
+                                TransponderMapper
+                                    .mapDownlinkToUplink(
+                                        rxNominalNow,
+                                        xpdr
+                                    )
+
+                            if (
+                                newTxBase != null &&
+                                newTxBase > 0
+                            ) {
+                                txBaseFreq = newTxBase
+                                _state.update {
+                                    it.copy(
+                                        txBaseFrequencyHz = newTxBase
+                                    )
+                                }
+                                Log.i(
+                                    tag,
+                                    "FTX-1 MAIN tuning done -> txBase=$newTxBase"
+                                )
+                            }
+                        }
+
+                        tuningRadio = ""
+                        stableCount = 0
+                        lastSetTxFreq = 0.0
+                        lastSetRxFreq = 0.0
+                    }
+                }
+
+            } else {
+
+                if (
+                    txBaseFreq != null &&
+                    lastSetTxFreq > 0.0
+                ) {
+
+                    val readTx =
+                        radio.readTxVfoFrequency()
+
+                    if (
+                        readTx != null &&
+                        kotlin.math.abs(
+                            readTx - lastSetTxFreq
+                        ) >= 20.0
+                    ) {
+                        tuningRadio = "tx"
+                        lastReadFreq = readTx
+                        stableCount = 0
+                        Log.i(
+                            tag,
+                            "FTX-1 SUB tuning detected (read=$readTx, lastSet=$lastSetTxFreq)"
+                        )
+                    }
+                }
+
+                if (
+                    tuningRadio.isEmpty() &&
+                    lastSetRxFreq > 0.0
+                ) {
+
+                    val readRx =
+                        radio.readWorkingFrequency()
+
+                    if (
+                        readRx != null &&
+                        kotlin.math.abs(
+                            readRx - lastSetRxFreq
+                        ) >= 20.0
+                    ) {
+                        tuningRadio = "rx"
+                        lastReadFreq = readRx
+                        stableCount = 0
+                        Log.i(
+                            tag,
+                            "FTX-1 MAIN tuning detected (read=$readRx, lastSet=$lastSetRxFreq)"
+                        )
+                    }
+                }
+            }
+
+            val txRadioFreq =
+                txBaseFreq?.let {
+                    pos.getUplinkFreq(it)
+                }
+
+            val rxBaseFreq =
+                if (txBaseFreq != null) {
+                    TransponderMapper
+                        .mapUplinkToDownlink(
+                            txBaseFreq,
+                            xpdr
+                        )
+                } else {
+                    xpdr.downlinkLow
+                }
+
+            val rxRadioFreq =
+                rxBaseFreq?.let {
+                    pos.getDownlinkFreq(it)
+                }
+
+            if (
+                radio.isConnected &&
+                tuningRadio.isEmpty()
+            ) {
+
+                if (rxRadioFreq != null) {
+                    radio.setMainFrequency(rxRadioFreq)
+                    lastSetRxFreq =
+                        rxRadioFreq.toDouble()
+                }
+
+                if (txRadioFreq != null) {
+                    radio.setSubFrequency(txRadioFreq)
+                    lastSetTxFreq =
+                        txRadioFreq.toDouble()
+                }
+            }
+
+            _state.update {
+                it.copy(
+                    txConnected = radio.isConnected,
+                    rxConnected = false,
+                    txFrequencyHz = txRadioFreq,
+                    rxFrequencyHz = rxRadioFreq,
+                    azimuth = Math.toDegrees(pos.azimuth),
+                    elevation = Math.toDegrees(pos.elevation),
+                    distance = pos.distance
+                )
+            }
+
+            delay(1000)
         }
     }
 
@@ -1242,6 +1587,13 @@ class RadioTrackingService(
         transponder: SatRadio
     ) {
 
+        val rcSettings =
+            settingsRepo.radioControlSettings.value
+
+        val isFtx1 =
+            rcSettings.radioModel ==
+                RadioControlSettings.MODEL_YAESU_FTX1
+
         appScope.launch {
 
             val tx =
@@ -1250,15 +1602,9 @@ class RadioTrackingService(
             val rx =
                 rxController
 
-            transponder.uplinkMode
-                ?.let {
-                    tx?.setMode(it)
-                }
-
             val rxMode =
                 transponder.downlinkMode
                     ?: transponder.uplinkMode?.let {
-
                         TransponderMapper
                             .mapUplinkModeToDownlinkMode(
                                 it,
@@ -1266,36 +1612,47 @@ class RadioTrackingService(
                             )
                     }
 
-            rxMode?.let {
-                rx?.setMode(it)
-            }
+            if (isFtx1) {
+                val radio =
+                    ftx1Controller as? Ftx1Controller
 
-            if (
-                transponder.uplinkMode
-                    ?.uppercase() == "FM"
-            ) {
-
-                _state.value
-                    .ctcssTone
-                    ?.let { tone ->
-
-                        tx?.setCtcssTone(
-                            tone
-                        )
-
-                        tx?.setCtcssMode(
-                            true
-                        )
+                if (radio != null && radio.isConnected) {
+                    rxMode?.let {
+                        radio.setMainMode(it)
                     }
+                    transponder.uplinkMode?.let {
+                        radio.setSubMode(it)
+                    }
+                    radio.selectSubForTx()
+                }
+            } else {
+                transponder.uplinkMode
+                    ?.let {
+                        tx?.setMode(it)
+                    }
+
+                rxMode?.let {
+                    rx?.setMode(it)
+                }
+
+                if (
+                    transponder.uplinkMode
+                        ?.uppercase() == "FM"
+                ) {
+                    _state.value
+                        .ctcssTone
+                        ?.let { tone ->
+                            tx?.setCtcssTone(tone)
+                            tx?.setCtcssMode(true)
+                        }
+                }
             }
         }
 
         val txCenter =
             when {
-
                 transponder.uplinkLow != null &&
                     transponder.uplinkHigh != null ->
-
                     (
                         transponder.uplinkLow!! +
                             transponder.uplinkHigh!!
@@ -1310,39 +1667,25 @@ class RadioTrackingService(
 
         val rxNominal =
             if (txCenter != null) {
-
                 TransponderMapper
                     .mapUplinkToDownlink(
                         txCenter,
                         transponder
                     )
-
             } else {
-
                 transponder.downlinkLow
             }
 
         _state.update {
             it.copy(
-                selectedTransponder =
-                    transponder,
-
-                txBaseFrequencyHz =
-                    txCenter,
-
-                txFrequencyHz =
-                    txCenter,
-
-                rxFrequencyHz =
-                    rxNominal,
-
-                txMode =
-                    transponder.uplinkMode,
-
+                selectedTransponder = transponder,
+                txBaseFrequencyHz = txCenter,
+                txFrequencyHz = txCenter,
+                rxFrequencyHz = rxNominal,
+                txMode = transponder.uplinkMode,
                 rxMode =
                     transponder.downlinkMode
                         ?: transponder.uplinkMode?.let { m ->
-
                             TransponderMapper
                                 .mapUplinkModeToDownlinkMode(
                                     m,
@@ -1422,17 +1765,31 @@ class RadioTrackingService(
         rxMode: String
     ) {
 
+        val rcSettings =
+            settingsRepo.radioControlSettings.value
+
+        val isFtx1 =
+            rcSettings.radioModel ==
+                RadioControlSettings.MODEL_YAESU_FTX1
+
         appScope.launch {
 
-            txController
-                ?.setMode(
-                    txMode
-                )
+            if (isFtx1) {
+                val radio =
+                    ftx1Controller as? Ftx1Controller
 
-            rxController
-                ?.setMode(
-                    rxMode
-                )
+                if (radio != null && radio.isConnected) {
+                    radio.setMainMode(rxMode)
+                    radio.setSubMode(txMode)
+                    radio.selectSubForTx()
+                }
+            } else {
+                txController
+                    ?.setMode(txMode)
+
+                rxController
+                    ?.setMode(rxMode)
+            }
         }
 
         _state.update {
@@ -1442,4 +1799,5 @@ class RadioTrackingService(
             )
         }
     }
+
 }
