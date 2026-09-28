@@ -1,45 +1,66 @@
-# Look4Sat: Satellite tracker
+# Look4Sat-FTX1
 
-[![Look4Sat CI](https://github.com/rt-bishop/Look4Sat/actions/workflows/release.yml/badge.svg)](https://github.com/rt-bishop/Look4Sat/actions/workflows/release.yml)
+Experimental version of Look4Sat with direct USB OTG support for the
+Yaesu FTX-1.
 
-[<img src="https://play.google.com/intl/en_gb/badges/static/images/badges/en_badge_web_generic.png" alt="Get it on Google Play" height="80">](https://play.google.com/store/apps/details?id=com.rtbishop.look4sat)
-[<img src="https://fdroid.gitlab.io/artwork/badge/get-it-on.png" alt="Get it on F-Droid" height="80">](https://f-droid.org/packages/com.rtbishop.look4sat/)
+## FTX-1 support
 
-### Radio satellite tracker and pass predictor for Android, inspired by Gpredict
+This version is intended for portable satellite operation using:
 
-<p float="left">
-<img src="fastlane/metadata/android/en-US/images/phoneScreenshots/1.png" width="192"/>
-<img src="fastlane/metadata/android/en-US/images/phoneScreenshots/2.png" width="192"/>
-<img src="fastlane/metadata/android/en-US/images/phoneScreenshots/3.png" width="192"/>
-<img src="fastlane/metadata/android/en-US/images/phoneScreenshots/4.png" width="192">
-</p>
+**Android + USB OTG + Yaesu FTX-1**
 
-### Track satellite passes with ease!
+without requiring a PC or rigctld.
 
-Thanks to [Celestrak](https://celestrak.com/) and [SatNOGS](https://satnogs.org/) you have access to over 9000 active satellites.\
-You can search the entire database by NORAD Catalog Number or the satellite's name.
+## Current features
 
-Orbital positions and passes are calculated relative to your location.\
-To get reliable data make sure to set the station position via the app Settings.
+- Direct CAT communication with the Yaesu FTX-1 over USB OTG
+- MAIN used for RX / downlink
+- SUB used for TX / uplink
+- Independent and continuous Doppler correction for RX and TX
+- Independent MAIN and SUB frequency control
+- Independent mode control
+- Automatic SUB selection for transmission
+- CTCSS configuration on SUB for FM satellites
+- No software PTT control
+- Physical microphone PTT remains under operator control
 
-The application is built using Kotlin, Coroutines, Jetpack Compose and Navigation.\
-It is now and always will be completely ad-free and open-source.
+## Project status
 
-## Main features:
+⚠️ Experimental / testing version.
 
-*  Predicting satellite positions and passes for up to 10 days
-*  Showing the list of currently active and upcoming satellite passes
-*  Showing the active pass progress, polar trajectory and transceivers info
-*  Showing the satellite positional data, footprint and ground track on the map
-*  Custom TLE satellite data import is available via Three Line Element .txt files
-*  Offline first: calculations are made offline. Weekly TLE data update is recommended.
+The FTX-1 integration is currently being tested during real satellite
+passes.
 
-## Star History
+Doppler behavior, USB stability and radio control are still being evaluated.
 
-<a href="https://star-history.dera.page/#rt-bishop/Look4Sat&type=timeline&legend=top-left">
- <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://star-history.dera.page/svg?repos=rt-bishop/Look4Sat&type=timeline&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://star-history.dera.page/svg?repos=rt-bishop/Look4Sat&type=timeline&legend=top-left" />
-   <img alt="Star History Chart" src="https://star-history.dera.page/svg?repos=rt-bishop/Look4Sat&type=timeline&legend=top-left" />
- </picture>
-</a>
+## Portable operation goal
+
+The main objective is to operate satellites in the field using only:
+
+**Android phone + USB OTG cable + Yaesu FTX-1**
+
+without needing to carry a laptop or PC.
+
+## Original project
+
+This project is based on **Look4Sat** by **rt-bishop**:
+
+https://github.com/rt-bishop/Look4Sat
+
+Many thanks to the original author and contributors for developing and
+maintaining Look4Sat.
+
+## FTX-1 modifications
+
+FTX-1 integration, modifications and testing:
+
+**EA7KWF**
+
+September 2026
+
+## License
+
+This project remains licensed under the **GNU General Public License v3.0**,
+in accordance with the original Look4Sat project.
+
+See the `LICENSE` file for details.
